@@ -3,23 +3,21 @@ from bpy.utils import register_class, unregister_class
 
 # info about add on
 bl_info = {
-    "name": "Rigify GRT Tools",
+    "name": "Unreal Rigify To GRT",
     "version": (1, 0, 0),
     "author": "kurethedead",
     "location": "3DView",
-    "description": "Scripts for automating processing of using Rigify, GRT, and Unreal.",
-    "category": "Import-Export",
-    "blender": (3, 2, 0),
+    "description": "Automating GRT rig generation from a Rigify metarig for use with Unreal",
+    "category": "Armature",
+    "blender": (3, 4, 0),
 }
 
 
-class SetLimbSegments(bpy.types.Operator):
+class GenerateRig(bpy.types.Operator):
     # set bl_ properties
-    bl_description = (
-        "(Rigify Metarig) Set Limb Segments to 1 for limbs, so that game IK works."
-    )
-    bl_idname = "object.set_limb_segments"
-    bl_label = "Set Limb Segments"
+    bl_description = "Generates a GRT rig from a Rigify metarig"
+    bl_idname = "object.generate_grt_rig_from_rigify_metarig"
+    bl_label = "Rigify Metarig To GRT"
     bl_options = {"REGISTER", "UNDO", "PRESET"}
 
     # Called on demand (i.e. button press, menu item)
@@ -30,57 +28,43 @@ class SetLimbSegments(bpy.types.Operator):
         elif type(context.selected_objects[0].data) is not bpy.types.Armature:
             raise RuntimeError("Armature not selected.")
 
-        armatureObj = context.selected_objects[0]
+        metarigObj = context.selected_objects[0]
 
         if context.mode != "POSE":
             bpy.ops.object.mode_set(mode="POSE")
 
+        # Keep track of these bones to reparent in GRT rig
+        faceBoneNames = [
+            bone.name for bone in metarigObj.data.bones["spine.006"].children_recursive
+        ]
+
+        # Make IK rig use single bones for each limb, allowing for 2-bone game IK to work
         for limbName in ["upper_arm.L", "upper_arm.R", "thigh.L", "thigh.R"]:
-            poseBone = armatureObj.pose.bones[limbName]
+            poseBone = metarigObj.pose.bones[limbName]
             poseBone.rigify_parameters.segments = 1
 
         bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.ops.pose.rigify_generate()
+        ikRigObj = bpy.context.active_object
 
-        self.report({"INFO"}, "Finished")
-        return {"FINISHED"}  # must return a set
-
-
-class SetIKParentsAndGenerateRig(bpy.types.Operator):
-    # set bl_ properties
-    bl_description = "(Rigify IK Rig) Sets IK parent for hand/foot/torso IK to 0, to move independently of root bone. Then generates rig and parents bones correctly."
-    bl_idname = "object.set_ik_and_generate"
-    bl_label = "Set IK Parents And Generate Rig"
-    bl_options = {"REGISTER", "UNDO", "PRESET"}
-
-    # Called on demand (i.e. button press, menu item)
-    # Can also be called from operator search menu (Spacebar)
-    def execute(self, context):
-        if len(context.selected_objects) == 0:
-            raise RuntimeError("Armature not selected.")
-        elif type(context.selected_objects[0].data) is not bpy.types.Armature:
-            raise RuntimeError("Armature not selected.")
-
-        armatureObj = context.selected_objects[0]
-
-        if context.mode != "POSE":
-            bpy.ops.object.mode_set(mode="POSE")
-
+        # Set IK parent for hand/feet/torso to 0, making them move independent of the root bone
+        # This lets us constrain the root bone to the torso, so we get free root motion
         for limbName in [
             "upper_arm_parent.L",
             "upper_arm_parent.R",
             "thigh_parent.L",
             "thigh_parent.R",
         ]:
-            poseBone = armatureObj.pose.bones[limbName]
+            poseBone = ikRigObj.pose.bones[limbName]
             poseBone["IK_parent"] = 0
 
-        armatureObj.pose.bones["torso"]["torso_parent"] = 0
+        ikRigObj.pose.bones["torso"]["torso_parent"] = 0
 
-        armatureObj.data.bones["root"].use_deform = True
-        rootPoseBone = armatureObj.pose.bones["root"]
-        constraint = rootPoseBone.constraints.new(type="COPY_ROTATION")
-        constraint.target = armatureObj
-        constraint.subtarget = "hips"
+        ikRigObj.data.bones["root"].use_deform = True
+        rootPoseBone = ikRigObj.pose.bones["root"]
+        constraint = rootPoseBone.constraints.new(type="COPY_LOCATION")
+        constraint.target = ikRigObj
+        constraint.subtarget = "torso"
         constraint.use_x = False
         constraint.use_z = False
 
@@ -88,7 +72,10 @@ class SetIKParentsAndGenerateRig(bpy.types.Operator):
         bpy.ops.gamerigtool.generate_game_rig(Deform_Armature_Name="Armature")
         bpy.ops.object.mode_set(mode="EDIT")
 
-        editBones = bpy.context.active_object.data.edit_bones
+        # Reparent bones on GRT rig so that hierarchy makes sense in Unreal
+        # Every bone should be in same hierarchy under the root bone
+        GRTRigObj = bpy.context.active_object
+        editBones = GRTRigObj.data.edit_bones
         print(editBones[:])
         editBones["DEF-upper_arm.L"].parent = editBones["DEF-shoulder.L"]
         editBones["DEF-upper_arm.R"].parent = editBones["DEF-shoulder.R"]
@@ -106,40 +93,18 @@ class SetIKParentsAndGenerateRig(bpy.types.Operator):
         editBones["DEF-pelvis.L"].parent = editBones["DEF-spine"]
         editBones["DEF-pelvis.R"].parent = editBones["DEF-spine"]
 
-        children = [
-            "nose",
-            "lip.T.L",
-            "lip.B.L",
-            "jaw",
-            "ear.L",
-            "ear.R",
-            "lip.T.R",
-            "lip.B.R",
-            "brow.B.L",
-            "lid.T.L",
-            "brow.B.R",
-            "lid.T.R",
-            "forehead.L",
-            "forehead.R",
-            "forehead.L.001",
-            "forehead.R.001",
-            "forehead.L.002",
-            "forehead.R.002",
-            "eye.L",
-            "eye.R",
-            "cheek.T.L",
-            "cheek.T.R",
-            "teeth.T",
-            "teeth.B",
-            "tongue",
-            "temple.L",
-            "temple.R",
-        ]
-
-        for childName in children:
-            editBones[childName].parent = editBones["DEF-spine.006"]
+        for childName in faceBoneNames:
+            name = f"DEF-{childName}"
+            if name in editBones:
+                editBones[name].parent = editBones["DEF-spine.006"]
 
         bpy.ops.object.mode_set(mode="OBJECT")
+
+        GRTSettings = context.scene.GRT_Action_Bakery_Global_Settings
+        GRTSettings.Source_Armature = ikRigObj
+        GRTSettings.Target_Armature = GRTRigObj
+
+        metarigObj.hide_set(True)
 
         self.report({"INFO"}, "Finished")
         return {"FINISHED"}  # must return a set
@@ -147,10 +112,10 @@ class SetIKParentsAndGenerateRig(bpy.types.Operator):
 
 class ToolsPanel(bpy.types.Panel):
     bl_idname = "RIGIFY_GRT_PT_global_tools"
-    bl_label = "Rigify GRT Tools"
+    bl_label = "Unreal Rigify To GRT"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Tool"
+    bl_category = "Game Rig Tool"
 
     @classmethod
     def poll(cls, context):
@@ -159,23 +124,17 @@ class ToolsPanel(bpy.types.Panel):
     # called every frame
     def draw(self, context):
         col = self.layout.column()
-        col.operator(SetLimbSegments.bl_idname)
-        col.operator(SetIKParentsAndGenerateRig.bl_idname)
+        col.operator(GenerateRig.bl_idname)
 
 
-classes = [SetLimbSegments, SetIKParentsAndGenerateRig, ToolsPanel]
+classes = [GenerateRig, ToolsPanel]
 
 
-# called on add-on enabling
-# register operators and panels here
-# append menu layout drawing function to an existing window
 def register():
     for cls in classes:
         register_class(cls)
 
 
-# called on add-on disabling
 def unregister():
-
     for cls in classes:
         unregister_class(cls)
