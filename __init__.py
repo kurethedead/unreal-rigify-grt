@@ -68,6 +68,25 @@ class GenerateRig(bpy.types.Operator):
         constraint.use_x = False
         constraint.use_z = False
 
+        # Add shape key rig if applicable.
+        shapeKeyRig = bpy.context.scene.rigifyToGRTProperty.shapeKeyRig
+        if shapeKeyRig:
+            childBoneNames = [
+                bone.name for bone in shapeKeyRig.data.bones if bone.select
+            ]
+            bpy.ops.object.select_all(action="DESELECT")
+            shapeKeyRig.select_set(True)
+            ikRigObj.select_set(True)
+            bpy.context.view_layer.objects.active = ikRigObj
+            bpy.ops.object.join()
+
+            bpy.ops.object.mode_set(mode="EDIT")
+            controlEditBones = ikRigObj.data.edit_bones
+            for childBoneName in childBoneNames:
+                controlEditBones[childBoneName].parent = controlEditBones["head"]
+
+            # TODO: Handle bone parenting, not all bones should be parented?
+
         bpy.ops.object.mode_set(mode="OBJECT")
         bpy.ops.gamerigtool.generate_game_rig(Deform_Armature_Name="Armature")
         bpy.ops.object.mode_set(mode="EDIT")
@@ -124,17 +143,40 @@ class ToolsPanel(bpy.types.Panel):
     # called every frame
     def draw(self, context):
         col = self.layout.column()
-        col.operator(GenerateRig.bl_idname)
+
+        prop = bpy.context.scene.rigifyToGRTProperty
+        operator = col.operator(GenerateRig.bl_idname)
+        col.prop(prop, "shapeKeyRig")
+        col.label(
+            text='The selected bones in this rig are parented to the "head" bone in the control rig.'
+        )
+        col.label(text="Make sure all bones in this rig are deformable.")
 
 
-classes = [GenerateRig, ToolsPanel]
+def pollShapeKeyRig(self, obj):
+    return isinstance(obj.data, bpy.types.Armature)
+
+
+class RigifyToGRTProperty(bpy.types.PropertyGroup):
+    shapeKeyRig: bpy.props.PointerProperty(
+        type=bpy.types.Object, poll=pollShapeKeyRig, name="Shape Key Rig"
+    )
+
+
+classes = [GenerateRig, ToolsPanel, RigifyToGRTProperty]
 
 
 def register():
     for cls in classes:
         register_class(cls)
 
+    bpy.types.Scene.rigifyToGRTProperty = bpy.props.PointerProperty(
+        type=RigifyToGRTProperty
+    )
+
 
 def unregister():
+    del bpy.types.Scene.rigifyToGRTProperty
+
     for cls in classes:
         unregister_class(cls)
