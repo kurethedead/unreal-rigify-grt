@@ -1,5 +1,6 @@
 import bpy
 from bpy.utils import register_class, unregister_class
+import re
 
 # info about add on
 bl_info = {
@@ -15,7 +16,7 @@ bl_info = {
 
 class GenerateRig(bpy.types.Operator):
     # set bl_ properties
-    bl_description = "Generates a GRT rig from a Rigify metarig"
+    bl_description = 'Generates a GRT rig from the selected Rigify metarig. An optional add-on rig will be joined to the Rigify control rig before generating the GRT deform rig. The selected bones in this add-on rig are parented to the "head" bone.'
     bl_idname = "object.generate_grt_rig_from_rigify_metarig"
     bl_label = "Rigify Metarig To GRT"
     bl_options = {"REGISTER", "UNDO", "PRESET"}
@@ -129,6 +130,87 @@ class GenerateRig(bpy.types.Operator):
         return {"FINISHED"}  # must return a set
 
 
+class TransferShapeKeyDrivers(bpy.types.Operator):
+    # set bl_ properties
+    bl_description = "Copies shape key driver settings from the active object to all selected objects for any shared shape key names. This optionally sets a new target object for all driver variables."
+    bl_idname = "object.transfer_shape_key_drivers"
+    bl_label = "Transfer Shape Key Drivers By Name"
+    bl_options = {"REGISTER", "UNDO", "PRESET"}
+
+    # Called on demand (i.e. button press, menu item)
+    # Can also be called from operator search menu (Spacebar)
+    def execute(self, context):
+        if len(context.selected_objects) < 2:
+            self.report({"ERROR"}, "Not enough objects selected.")
+            return {"FINISHED"}
+        elif bpy.context.view_layer.objects.active is None:
+            self.report({"ERROR"}, "No active object selected.")
+            return {"FINISHED"}
+
+        for obj in context.selected_objects:
+            if not isinstance(obj.data, bpy.types.Mesh):
+                raise RuntimeError("A selected object is not a mesh.")
+
+        source = bpy.context.view_layer.objects.active
+        targets = [obj for obj in context.selected_objects if obj is not source]
+
+        targetRig = bpy.context.scene.rigifyToGRTProperty.rigObj
+
+        for target in targets:
+            if source.data.shape_keys.animation_data is None:
+                self.report({"ERROR"}, "No shape key data found on source object.")
+                return {"FINISHED"}
+            for fcurve in source.data.shape_keys.animation_data.drivers:
+                sourceDriver = fcurve.driver
+                shapeKeyName = self.getShapeKeyNameFromDriver(fcurve)
+                targetShapeKeys = target.data.shape_keys
+                if shapeKeyName and shapeKeyName in targetShapeKeys.key_blocks:
+                    targetShapeKey = targetShapeKeys.key_blocks[shapeKeyName]
+                    targetDriver = targetShapeKey.driver_add("value").driver
+                    targetDriver.type = sourceDriver.type
+                    targetDriver.expression = sourceDriver.expression
+
+                    for driverVar in sourceDriver.variables:
+                        targetDriverVar = targetDriver.variables.new()
+                        targetDriverVar.name = driverVar.name
+                        targetDriverVar.type = driverVar.type
+
+                        for i in range(len(driverVar.targets)):
+                            for value in [
+                                "bone_target",
+                                "data_path",
+                                "id",
+                                "rotation_mode",
+                                "transform_space",
+                                "transform_type",
+                            ]:
+                                setattr(
+                                    targetDriverVar.targets[i],
+                                    value,
+                                    getattr(driverVar.targets[i], value),
+                                )
+
+                            # New shape key drivers should target our deform rig
+                            if targetRig:
+                                targetDriverVar.targets[i].id = targetRig
+
+                    # Need to do this to force update of driver
+                    targetDriver.expression = targetDriver.expression
+
+                driver = fcurve.driver
+                driver.expression
+
+        self.report({"INFO"}, "Finished")
+        return {"FINISHED"}  # must return a set
+
+    def getShapeKeyNameFromDriver(self, fcurve):
+        match = re.match(r"key\_blocks\[\"(.*)\"\]\.value", fcurve.data_path)
+        if match:
+            return match.group(1)
+        else:
+            return None
+
+
 class ToolsPanel(bpy.types.Panel):
     bl_idname = "RIGIFY_GRT_PT_global_tools"
     bl_label = "Unreal Rigify To GRT"
@@ -145,12 +227,18 @@ class ToolsPanel(bpy.types.Panel):
         col = self.layout.column()
 
         prop = bpy.context.scene.rigifyToGRTProperty
-        operator = col.operator(GenerateRig.bl_idname)
-        col.prop(prop, "shapeKeyRig")
-        col.label(
-            text='The selected bones in this rig are parented to the "head" bone in the control rig.'
-        )
-        col.label(text="Make sure all bones in this rig are deformable.")
+        generateRig = col.operator(GenerateRig.bl_idname)
+        prop_split(col, prop, "shapeKeyRig", "Add-on Rig")
+        col.label(text="Make sure all add-on bones are deformable.")
+
+        transferShapeKeyDrivers = col.operator(TransferShapeKeyDrivers.bl_idname)
+        prop_split(col, prop, "rigObj", "New Driver Target")
+
+
+def prop_split(layout, data, field, name, **prop_kwargs):
+    split = layout.split(factor=0.5)
+    split.label(text=name)
+    split.prop(data, field, text="", **prop_kwargs)
 
 
 def pollShapeKeyRig(self, obj):
@@ -159,11 +247,17 @@ def pollShapeKeyRig(self, obj):
 
 class RigifyToGRTProperty(bpy.types.PropertyGroup):
     shapeKeyRig: bpy.props.PointerProperty(
-        type=bpy.types.Object, poll=pollShapeKeyRig, name="Shape Key Rig"
+        type=bpy.types.Object,
+        poll=pollShapeKeyRig,
+    )
+
+    rigObj: bpy.props.PointerProperty(
+        type=bpy.types.Object,
+        poll=pollShapeKeyRig,
     )
 
 
-classes = [GenerateRig, ToolsPanel, RigifyToGRTProperty]
+classes = [GenerateRig, TransferShapeKeyDrivers, ToolsPanel, RigifyToGRTProperty]
 
 
 def register():
