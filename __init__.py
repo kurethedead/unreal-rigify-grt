@@ -71,8 +71,9 @@ class GenerateRig(bpy.types.Operator):
 
         # Add shape key rig if applicable.
         shapeKeyRig = bpy.context.scene.rigifyToGRTProperty.shapeKeyRig
+        shapeKeyRigBoneNames = []
         if shapeKeyRig:
-            childBoneNames = [
+            shapeKeyRigBoneNames = [
                 bone.name for bone in shapeKeyRig.data.bones if bone.select
             ]
             bpy.ops.object.select_all(action="DESELECT")
@@ -83,7 +84,7 @@ class GenerateRig(bpy.types.Operator):
 
             bpy.ops.object.mode_set(mode="EDIT")
             controlEditBones = ikRigObj.data.edit_bones
-            for childBoneName in childBoneNames:
+            for childBoneName in shapeKeyRigBoneNames:
                 controlEditBones[childBoneName].parent = controlEditBones["head"]
 
             # TODO: Handle bone parenting, not all bones should be parented?
@@ -96,10 +97,12 @@ class GenerateRig(bpy.types.Operator):
         # Every bone should be in same hierarchy under the root bone
         GRTRigObj = bpy.context.active_object
         editBones = GRTRigObj.data.edit_bones
-        print(editBones[:])
+
+        # Arms to Shoulders
         editBones["DEF-upper_arm.L"].parent = editBones["DEF-shoulder.L"]
         editBones["DEF-upper_arm.R"].parent = editBones["DEF-shoulder.R"]
 
+        # Shoulders/Breasts to Spine
         for childBoneName in [
             "DEF-breast.R",
             "DEF-breast.L",
@@ -108,15 +111,21 @@ class GenerateRig(bpy.types.Operator):
         ]:
             editBones[childBoneName].parent = editBones["DEF-spine.003"]
 
+        # Thighs to Pelvis to Spine
         editBones["DEF-thigh.L"].parent = editBones["DEF-pelvis.L"]
         editBones["DEF-thigh.R"].parent = editBones["DEF-pelvis.R"]
         editBones["DEF-pelvis.L"].parent = editBones["DEF-spine"]
         editBones["DEF-pelvis.R"].parent = editBones["DEF-spine"]
 
+        # Face to Head
         for childName in faceBoneNames:
             name = f"DEF-{childName}"
             if name in editBones:
                 editBones[name].parent = editBones["DEF-spine.006"]
+
+        # Shape Key Bones to Head
+        for childName in shapeKeyRigBoneNames:
+            editBones[childName].parent = editBones["DEF-spine.006"]
 
         bpy.ops.object.mode_set(mode="OBJECT")
 
