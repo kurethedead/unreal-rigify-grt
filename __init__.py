@@ -44,9 +44,16 @@ class GenerateRig(bpy.types.Operator):
             poseBone = metarigObj.pose.bones[limbName]
             poseBone.rigify_parameters.segments = 1
 
+        for limbName in ["thigh.L", "thigh.R"]:
+            # Set rotation axis so that knees bend forward
+            poseBone.rigify_parameters.rotation_axis = "x"
+            poseBone.rigify_parameters.auto_align_extremity = True
+
         bpy.ops.object.mode_set(mode="OBJECT")
         bpy.ops.pose.rigify_generate()
         ikRigObj = bpy.context.active_object
+
+        ikRigObj.show_in_front = True
 
         # Set IK parent for hand/feet/torso to 0, making them move independent of the root bone
         # This lets us constrain the root bone to the torso, so we get free root motion
@@ -132,6 +139,41 @@ class GenerateRig(bpy.types.Operator):
         GRTSettings = context.scene.GRT_Action_Bakery_Global_Settings
         GRTSettings.Source_Armature = ikRigObj
         GRTSettings.Target_Armature = GRTRigObj
+
+        # Add/Reorder collections
+        collections = {}
+        sceneCollection = bpy.context.scene.collection
+        activeCollection = bpy.context.view_layer.active_layer_collection.collection
+        layerNames = ["Deform", "Control", "Metarig"]
+        for name in layerNames:
+            if name not in bpy.data.collections:
+                collections[name] = bpy.data.collections.new(name)
+                sceneCollection.children.link(collections[name])
+            else:
+                collections[name] = bpy.data.collections[name]
+
+        # children = sceneCollection.children[:]
+        # try:
+        #    for i in range(len(layerNames)):
+        #        childCollection = sceneCollection.children[layerNames[i]]
+        #        children.remove(childCollection)
+        #        children.insert(i + 1, childCollection)
+        #        if layerNames[i] != "Control":
+        #            childCollection.hide_viewport = True
+        #
+        #    for child in children:
+        #        sceneCollection.children.unlink(child)
+        #        sceneCollection.children.link(child)
+        # except ValueError:
+        #    print("Control/Deform collection not found.")
+
+        # Add rigs to correct collections
+        for name, rig in tuple(zip(layerNames, [GRTRigObj, ikRigObj, metarigObj])):
+            if not rig:
+                continue
+            if rig not in collections[name].objects:
+                collections[name].objects.link(rig)
+                activeCollection.objects.unlink(rig)
 
         metarigObj.hide_set(True)
 
