@@ -46,6 +46,7 @@ class GenerateRig(bpy.types.Operator):
 
         for limbName in ["thigh.L", "thigh.R"]:
             # Set rotation axis so that knees bend forward
+            poseBone = metarigObj.pose.bones[limbName]
             poseBone.rigify_parameters.rotation_axis = "x"
             poseBone.rigify_parameters.auto_align_extremity = True
 
