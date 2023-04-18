@@ -75,7 +75,8 @@ class GenerateRig(bpy.types.Operator):
         constraint.target = ikRigObj
         constraint.subtarget = "torso"
         constraint.use_x = False
-        constraint.use_z = False
+        constraint.use_y = False
+        constraint.use_z = True
 
         # Add shape key rig if applicable.
         shapeKeyRig = bpy.context.scene.rigifyToGRTProperty.shapeKeyRig
@@ -140,6 +141,8 @@ class GenerateRig(bpy.types.Operator):
         GRTSettings = context.scene.GRT_Action_Bakery_Global_Settings
         GRTSettings.Source_Armature = ikRigObj
         GRTSettings.Target_Armature = GRTRigObj
+        GRTSettings.Overwrite = True
+        GRTSettings.Push_to_NLA = False
 
         # Add/Reorder collections
         collections = {}
@@ -172,7 +175,7 @@ class GenerateRig(bpy.types.Operator):
         for name, rig in tuple(zip(layerNames, [GRTRigObj, ikRigObj, metarigObj])):
             if not rig:
                 continue
-            if rig not in collections[name].objects:
+            if rig not in collections[name].objects[:]:
                 collections[name].objects.link(rig)
                 activeCollection.objects.unlink(rig)
 
