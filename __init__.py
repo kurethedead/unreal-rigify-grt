@@ -10,7 +10,7 @@ bl_info = {
     "location": "3DView",
     "description": "Automating GRT rig generation from a Rigify metarig for use with Unreal",
     "category": "Armature",
-    "blender": (3, 4, 0),
+    "blender": (4, 1, 0),
 }
 
 
@@ -75,8 +75,8 @@ class GenerateRig(bpy.types.Operator):
         constraint.target = ikRigObj
         constraint.subtarget = "torso"
         constraint.use_x = False
-        constraint.use_y = False
-        constraint.use_z = True
+        constraint.use_y = True
+        constraint.use_z = False
 
         # Add shape key rig if applicable.
         shapeKeyRig = bpy.context.scene.rigifyToGRTProperty.shapeKeyRig
@@ -98,13 +98,20 @@ class GenerateRig(bpy.types.Operator):
 
             # TODO: Handle bone parenting, not all bones should be parented?
 
+        # Set ik rig to source armature - need it for game rig generation, so we just set other settings while we're here
         bpy.ops.object.mode_set(mode="OBJECT")
+        GRTSettings = context.scene.GRT_Action_Bakery_Global_Settings
+        GRTSettings.Overwrite = True
+        GRTSettings.Push_to_NLA = False
+        GRTSettings.Source_Armature = ikRigObj
+        
         bpy.ops.gamerigtool.generate_game_rig(Deform_Armature_Name="Armature")
         bpy.ops.object.mode_set(mode="EDIT")
 
         # Reparent bones on GRT rig so that hierarchy makes sense in Unreal
         # Every bone should be in same hierarchy under the root bone
         GRTRigObj = bpy.context.active_object
+        GRTSettings.Target_Armature = GRTRigObj
         editBones = GRTRigObj.data.edit_bones
 
         # Arms to Shoulders
@@ -136,13 +143,7 @@ class GenerateRig(bpy.types.Operator):
         for childName in shapeKeyRigBoneNames:
             editBones[childName].parent = editBones["DEF-spine.006"]
 
-        bpy.ops.object.mode_set(mode="OBJECT")
-
-        GRTSettings = context.scene.GRT_Action_Bakery_Global_Settings
-        GRTSettings.Source_Armature = ikRigObj
-        GRTSettings.Target_Armature = GRTRigObj
-        GRTSettings.Overwrite = True
-        GRTSettings.Push_to_NLA = False
+        bpy.ops.object.mode_set(mode="OBJECT")      
 
         # Add/Reorder collections
         collections = {}
@@ -177,7 +178,8 @@ class GenerateRig(bpy.types.Operator):
                 continue
             if rig not in collections[name].objects[:]:
                 collections[name].objects.link(rig)
-                activeCollection.objects.unlink(rig)
+                if rig in activeCollection.objects[:]:
+                    activeCollection.objects.unlink(rig)
 
         metarigObj.hide_set(True)
 
