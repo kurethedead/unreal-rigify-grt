@@ -83,7 +83,7 @@ class GenerateRig(bpy.types.Operator):
         shapeKeyRigBoneNames = []
         if shapeKeyRig:
             shapeKeyRigBoneNames = [
-                bone.name for bone in shapeKeyRig.data.bones if bone.select
+                bone.name for bone in shapeKeyRig.data.bones if bone.parent is None
             ]
             bpy.ops.object.select_all(action="DESELECT")
             shapeKeyRig.select_set(True)
