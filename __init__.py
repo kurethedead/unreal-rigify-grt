@@ -35,12 +35,18 @@ class SetupShapekeyDriver(bpy.types.Operator):
         shapeKeyType = bpy.context.scene.shapeKeySetupProperty.shapeKeyType
         for bone in bpy.context.selected_pose_bones:
             for obj in [n for n in rigObj.children if n.type == "MESH"]:
-                if obj.data.shape_keys and bone.name in obj.data.shape_keys.key_blocks:
+                if (
+                    shapeKeyType == "Single"
+                    and obj.data.shape_keys
+                    and bone.name in obj.data.shape_keys.key_blocks
+                ):
                     # https://blender.stackexchange.com/questions/282140/how-can-i-add-and-configure-a-driver-through-a-script
                     # https://docs.blender.org/api/current/bpy.types.Driver.html
-                    driver = obj.data.shape_keys.key_blocks[bone.name].driver_add(
-                        "value"
-                    ).driver
+                    driver = (
+                        obj.data.shape_keys.key_blocks[bone.name]
+                        .driver_add("value")
+                        .driver
+                    )
                     driver.type = "SCRIPTED"
                     # driver.expression = "-var * 4 if var < 0 else 0"
 
@@ -61,29 +67,47 @@ class SetupShapekeyDriver(bpy.types.Operator):
                         target.transform_type = "LOC_Y"
                         target.transform_space = "LOCAL_SPACE"
 
-                    # bone going from -0.25-0.25 in local XY -> 0-1 shape key value
-                    elif shapeKeyType == "Eye":
-                        if bone.name == "LookUp":
-                            driver.expression = "var * 4 if var > 0 else 0"
-                            target.transform_type = "LOC_Y"
-                        elif bone.name == "LookDown":
-                            driver.expression = "-var * 4 if var < 0 else 0"
-                            target.transform_type = "LOC_Y"
-                        elif bone.name == "LookLeft":
-                            driver.expression = "-var * 4 if var < 0 else 0"
-                            target.transform_type = "LOC_X"
-                        elif bone.name == "LookRight":
-                            driver.expression = "var * 4 if var > 0 else 0"
-                            target.transform_type = "LOC_X"
-                        else:
-                            driver.expression = "var"
-                            target.transform_type = "LOC_Y"
-                            print(
-                                f"Invalid bone name for Eye shape key setup: {bone.name}. Must be LookUp/LookDown/LookLeft/LookRight"
-                            )
+                elif shapeKeyType == "Eye" and obj.data.shape_keys:
+                    shapeKeyNames = ["LookUp", "LookDown", "LookLeft", "LookRight"]
+                    for shapeKey in [
+                        n for n in shapeKeyNames if n in obj.data.shape_keys.key_blocks
+                    ]:
+                        # https://blender.stackexchange.com/questions/282140/how-can-i-add-and-configure-a-driver-through-a-script
+                        # https://docs.blender.org/api/current/bpy.types.Driver.html
+                        driver = (
+                            obj.data.shape_keys.key_blocks[shapeKey]
+                            .driver_add("value")
+                            .driver
+                        )
+                        driver.type = "SCRIPTED"
+                        # driver.expression = "-var * 4 if var < 0 else 0"
 
+                        var = (
+                            driver.variables.new()
+                        )  # https://docs.blender.org/api/current/bpy.types.DriverVariable.html
+                        var.type = "TRANSFORMS"
+                        var.name = "var"
+                        target = var.targets[
+                            0
+                        ]  # https://docs.blender.org/api/current/bpy.types.DriverTarget.html
+                        target.id = rigObj
+                        target.bone_target = bone.name
+
+                        # bone going from -0.25-0.25 in local XY -> 0-1 shape key value
+                        if shapeKey == "LookUp":
+                            driver.expression = "var * 4 if var > 0 else 0"
+                            target.transform_type = "LOC_Y"
+                        elif shapeKey == "LookDown":
+                            driver.expression = "-var * 4 if var < 0 else 0"
+                            target.transform_type = "LOC_Y"
+                        elif shapeKey == "LookLeft":
+                            driver.expression = "-var * 4 if var < 0 else 0"
+                            target.transform_type = "LOC_X"
+                        elif shapeKey == "LookRight":
+                            driver.expression = "var * 4 if var > 0 else 0"
+                            target.transform_type = "LOC_X"
                         target.transform_space = "LOCAL_SPACE"
-        
+
         self.report({"INFO"}, "Finished")
         return {"FINISHED"}
 
