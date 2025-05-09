@@ -14,6 +14,80 @@ bl_info = {
 }
 
 
+class SetupShapekeyDriver(bpy.types.Operator):
+    # set bl_ properties
+    bl_description = "Given the selected deform pose bones, set up a driver on the shape key with the same name as the bone, based on a preset category."
+    bl_idname = "object.setup_shapekey_driver"
+    bl_label = "Setup Shapekey Driver"
+    bl_options = {"REGISTER", "UNDO", "PRESET"}
+
+    def execute(self, context):
+        if len(context.selected_objects) == 0:
+            raise RuntimeError("Armature not selected.")
+        elif type(context.selected_objects[0].data) is not bpy.types.Armature:
+            raise RuntimeError("Armature not selected.")
+
+        rigObj = context.selected_objects[0]
+
+        if context.mode != "POSE":
+            bpy.ops.object.mode_set(mode="POSE")
+
+        shapeKeyType = bpy.context.scene.shapeKeySetupProperty.shapeKeyType
+        for bone in bpy.context.selected_pose_bones:
+            for obj in [n for n in rigObj.children if n.type == "MESH"]:
+                if obj.data.shape_keys and bone.name in obj.data.shape_keys.key_blocks:
+                    # https://blender.stackexchange.com/questions/282140/how-can-i-add-and-configure-a-driver-through-a-script
+                    # https://docs.blender.org/api/current/bpy.types.Driver.html
+                    driver = obj.data.shape_keys.key_blocks[bone.name].driver_add(
+                        "value"
+                    ).driver
+                    driver.type = "SCRIPTED"
+                    # driver.expression = "-var * 4 if var < 0 else 0"
+
+                    var = (
+                        driver.variables.new()
+                    )  # https://docs.blender.org/api/current/bpy.types.DriverVariable.html
+                    var.type = "TRANSFORMS"
+                    var.name = "var"
+                    target = var.targets[
+                        0
+                    ]  # https://docs.blender.org/api/current/bpy.types.DriverTarget.html
+                    target.id = rigObj
+                    target.bone_target = bone.name
+
+                    # bone going from 0-0.5 in local Y -> 0-1 shape key value
+                    if shapeKeyType == "Single":
+                        driver.expression = "var * 2"
+                        target.transform_type = "LOC_Y"
+                        target.transform_space = "LOCAL_SPACE"
+
+                    # bone going from -0.25-0.25 in local XY -> 0-1 shape key value
+                    elif shapeKeyType == "Eye":
+                        if bone.name == "LookUp":
+                            driver.expression = "var * 4 if var > 0 else 0"
+                            target.transform_type = "LOC_Y"
+                        elif bone.name == "LookDown":
+                            driver.expression = "-var * 4 if var < 0 else 0"
+                            target.transform_type = "LOC_Y"
+                        elif bone.name == "LookLeft":
+                            driver.expression = "-var * 4 if var < 0 else 0"
+                            target.transform_type = "LOC_X"
+                        elif bone.name == "LookRight":
+                            driver.expression = "var * 4 if var > 0 else 0"
+                            target.transform_type = "LOC_X"
+                        else:
+                            driver.expression = "var"
+                            target.transform_type = "LOC_Y"
+                            print(
+                                f"Invalid bone name for Eye shape key setup: {bone.name}. Must be LookUp/LookDown/LookLeft/LookRight"
+                            )
+
+                        target.transform_space = "LOCAL_SPACE"
+        
+        self.report({"INFO"}, "Finished")
+        return {"FINISHED"}
+
+
 class GenerateRig(bpy.types.Operator):
     # set bl_ properties
     bl_description = 'Generates a GRT rig from the selected Rigify metarig. An optional add-on rig will be joined to the Rigify control rig before generating the GRT deform rig. The selected bones in this add-on rig are parented to the "head" bone.'
@@ -104,7 +178,7 @@ class GenerateRig(bpy.types.Operator):
         GRTSettings.Overwrite = True
         GRTSettings.Push_to_NLA = False
         GRTSettings.Source_Armature = ikRigObj
-        
+
         bpy.ops.gamerigtool.generate_game_rig(Deform_Armature_Name="Armature")
         bpy.ops.object.mode_set(mode="EDIT")
 
@@ -143,7 +217,7 @@ class GenerateRig(bpy.types.Operator):
         for childName in shapeKeyRigBoneNames:
             editBones[childName].parent = editBones["DEF-spine.006"]
 
-        bpy.ops.object.mode_set(mode="OBJECT")      
+        bpy.ops.object.mode_set(mode="OBJECT")
 
         # Add/Reorder collections
         collections = {}
@@ -291,6 +365,10 @@ class ToolsPanel(bpy.types.Panel):
         transferShapeKeyDrivers = col.operator(TransferShapeKeyDrivers.bl_idname)
         prop_split(col, prop, "rigObj", "New Driver Target")
 
+        shape_key_prop = bpy.context.scene.shapeKeySetupProperty
+        col.operator(SetupShapekeyDriver.bl_idname)
+        prop_split(col, shape_key_prop, "shapeKeyType", "Shapekey Category")
+
 
 def prop_split(layout, data, field, name, **prop_kwargs):
     split = layout.split(factor=0.5)
@@ -314,7 +392,34 @@ class RigifyToGRTProperty(bpy.types.PropertyGroup):
     )
 
 
-classes = [GenerateRig, TransferShapeKeyDrivers, ToolsPanel, RigifyToGRTProperty]
+ShapeKeySetupTypes = [
+    (
+        "Single",
+        "Single",
+        "Bone ranges from 0-0.5 in local Y space. Shapekey name same as bone with range [0-1]",
+    ),
+    (
+        "Eye",
+        "Eye",
+        "Bone ranges in +-0.25 in local XY space. Hardcoded to LookUp/LookDown/LookLeft/LookRight with range [0-1]",
+    ),
+]
+
+
+class ShapeKeySetupProperty(bpy.types.PropertyGroup):
+    shapeKeyType: bpy.props.EnumProperty(
+        items=ShapeKeySetupTypes, name="Shapekey Category"
+    )
+
+
+classes = [
+    GenerateRig,
+    TransferShapeKeyDrivers,
+    ToolsPanel,
+    RigifyToGRTProperty,
+    SetupShapekeyDriver,
+    ShapeKeySetupProperty,
+]
 
 
 def register():
@@ -325,9 +430,14 @@ def register():
         type=RigifyToGRTProperty
     )
 
+    bpy.types.Scene.shapeKeySetupProperty = bpy.props.PointerProperty(
+        type=ShapeKeySetupProperty
+    )
+
 
 def unregister():
     del bpy.types.Scene.rigifyToGRTProperty
+    del bpy.types.Scene.shapeKeySetupProperty
 
     for cls in classes:
         unregister_class(cls)
