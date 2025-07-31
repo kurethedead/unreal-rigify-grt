@@ -1,5 +1,6 @@
-import bpy
+import bpy, mathutils
 from bpy.utils import register_class, unregister_class
+from math import radians
 import re
 
 # info about add on
@@ -119,6 +120,130 @@ class GenerateRig(bpy.types.Operator):
     bl_label = "Rigify Metarig To GRT"
     bl_options = {"REGISTER", "UNDO", "PRESET"}
 
+    class CorrectiveHelperInfo:
+        def __init__(self, name, target, parent, direction):
+            self.name = name
+            self.target = target
+            self.parent = parent
+            self.direction = direction
+
+    correctiveHelpers = [
+        CorrectiveHelperInfo("DEF-elbow", "DEF-forearm", "DEF-upper_arm", mathutils.Vector((0, 0.5, 0))),
+        CorrectiveHelperInfo("DEF-knee", "DEF-shin", "DEF-thigh", mathutils.Vector((0, -0.5, 0))),
+        CorrectiveHelperInfo("DEF-butt", "DEF-thigh", "DEF-pelvis", mathutils.Vector((0, 0.5, 0))),
+    ]
+
+    # add butt/knee/elbow bones to help with joint deformations
+    def addCorrectiveHelpers(self, ikRigObj: bpy.types.Object):
+        bpy.ops.object.select_all(action="DESELECT")
+        ikRigObj.select_set(True)
+        bpy.context.view_layer.objects.active = ikRigObj
+
+        bpy.ops.object.mode_set(mode="EDIT")
+        editBones = ikRigObj.data.edit_bones
+        
+        # add corrective bones in edit mode
+        for correctiveHelper in self.correctiveHelpers:
+            for side in ["L", "R"]:
+                editBone = editBones.new(f"{correctiveHelper.name}.{side}")
+                editBone.head = editBones[f"{correctiveHelper.target}.{side}"].head
+                editBone.tail = editBones[f"{correctiveHelper.target}.{side}"].head + correctiveHelper.direction
+                editBone.parent = editBones[f"{correctiveHelper.parent}.{side}"]
+                
+                ikRigObj.data.collections["DEF"].assign(editBone)
+
+        # add constraints in pose mode
+        bpy.ops.object.mode_set(mode="POSE")
+        poseBones = ikRigObj.pose.bones
+        for correctiveHelper in self.correctiveHelpers:
+            for side in ["L", "R"]:
+                if correctiveHelper.name == "DEF-butt":
+                    # butt affected by thigh
+                    constraint = poseBones[f"{correctiveHelper.name}.{side}"].constraints.new(
+                        type="TRANSFORM"
+                    )
+                    constraint.target = ikRigObj
+                    constraint.subtarget = f"{correctiveHelper.target}.{side}"
+                    constraint.target_space = "LOCAL"
+                    constraint.owner_space = "LOCAL"
+                    constraint.mix_mode_rot = "REPLACE"
+
+                    constraint.map_from = "ROTATION"
+                    constraint.from_rotation_mode = "XYZ"
+                    constraint.from_min_x_rot = radians(-180)
+                    constraint.from_max_x_rot = radians(180)
+                    constraint.from_min_y_rot = radians(-180)
+                    constraint.from_max_y_rot = radians(180)
+                    constraint.from_min_z_rot = radians(-180)
+                    constraint.from_max_z_rot = radians(180)
+
+                    constraint.map_to = "ROTATION"
+                    constraint.to_euler_order = "XYZ"
+                    constraint.to_min_x_rot = radians(-60)
+                    constraint.to_max_x_rot = radians(60)
+                    constraint.to_min_y_rot = radians(-45)
+                    constraint.to_max_y_rot = radians(45)
+                    constraint.to_min_z_rot = radians(-15)
+                    constraint.to_max_z_rot = radians(15)
+                    
+                    # butt also affected by spine
+                    spineConstraint = poseBones[f"{correctiveHelper.name}.{side}"].constraints.new(
+                        type="TRANSFORM"
+                    )
+                    spineConstraint.target = ikRigObj
+                    spineConstraint.subtarget = "DEF-spine.001"
+                    spineConstraint.target_space = "LOCAL_OWNER_ORIENT"
+                    spineConstraint.owner_space = "LOCAL"
+                    spineConstraint.mix_mode_rot = "ADD"
+
+                    spineConstraint.map_from = "ROTATION"
+                    spineConstraint.from_rotation_mode = "XYZ"
+                    spineConstraint.from_min_x_rot = radians(-180)
+                    spineConstraint.from_max_x_rot = radians(180)
+                    spineConstraint.from_min_y_rot = radians(-180)
+                    spineConstraint.from_max_y_rot = radians(180)
+                    spineConstraint.from_min_z_rot = radians(-180)
+                    spineConstraint.from_max_z_rot = radians(180)
+
+                    spineConstraint.map_to = "ROTATION"
+                    spineConstraint.to_euler_order = "XYZ"
+                    spineConstraint.to_min_x_rot = radians(-60)
+                    spineConstraint.to_max_x_rot = radians(60)
+                    spineConstraint.to_min_y_rot = radians(-45)
+                    spineConstraint.to_max_y_rot = radians(45)
+                    spineConstraint.to_min_z_rot = radians(-15)
+                    spineConstraint.to_max_z_rot = radians(15)
+                
+                else:
+                    constraint = poseBones[f"{correctiveHelper.name}.{side}"].constraints.new(
+                        type="TRANSFORM"
+                    )
+                    constraint.target = ikRigObj
+                    constraint.subtarget = f"{correctiveHelper.target}.{side}"
+                    constraint.target_space = "LOCAL_OWNER_ORIENT"
+                    constraint.owner_space = "LOCAL"
+                    constraint.mix_mode_rot = "REPLACE"
+
+                    constraint.map_from = "ROTATION"
+                    constraint.from_rotation_mode = "XYZ"
+                    constraint.from_min_x_rot = radians(-180)
+                    constraint.from_max_x_rot = radians(180)
+                    constraint.from_min_y_rot = radians(-180)
+                    constraint.from_max_y_rot = radians(180)
+                    constraint.from_min_z_rot = radians(-180)
+                    constraint.from_max_z_rot = radians(180)
+
+                    constraint.map_to = "ROTATION"
+                    constraint.to_euler_order = "XYZ"
+                    constraint.to_min_x_rot = radians(-90)
+                    constraint.to_max_x_rot = radians(90)
+                    constraint.to_min_y_rot = radians(-90)
+                    constraint.to_max_y_rot = radians(90)
+                    constraint.to_min_z_rot = radians(-90)
+                    constraint.to_max_z_rot = radians(90)
+
+        bpy.ops.object.mode_set(mode="OBJECT")
+
     # Called on demand (i.e. button press, menu item)
     # Can also be called from operator search menu (Spacebar)
     def execute(self, context):
@@ -203,12 +328,15 @@ class GenerateRig(bpy.types.Operator):
         GRTSettings.Push_to_NLA = False
         GRTSettings.Source_Armature = ikRigObj
 
+        self.addCorrectiveHelpers(ikRigObj)
+
         bpy.ops.gamerigtool.generate_game_rig(Deform_Armature_Name="Armature")
         bpy.ops.object.mode_set(mode="EDIT")
 
         # Reparent bones on GRT rig so that hierarchy makes sense in Unreal
         # Every bone should be in same hierarchy under the root bone
         GRTRigObj = bpy.context.active_object
+        GRTRigObj.data.display_type = "STICK"
         GRTSettings.Target_Armature = GRTRigObj
         editBones = GRTRigObj.data.edit_bones
 
