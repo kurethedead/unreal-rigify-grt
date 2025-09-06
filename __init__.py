@@ -364,6 +364,11 @@ class GenerateRig(bpy.types.Operator):
             name = f"DEF-{childName}"
             if name in editBones:
                 editBones[name].parent = editBones["DEF-spine.006"]
+                
+        # Eyes to Head
+        for childName in ["DEF-eye_master.L", "DEF-eye_master.R"]:
+            if childName in editBones:
+                editBones[childName].parent = editBones["DEF-spine.006"]
 
         # Shape Key Bones to Head
         for childName in shapeKeyRigBoneNames:
