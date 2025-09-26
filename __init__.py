@@ -113,6 +113,36 @@ class SetupShapekeyDriver(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class UpdateArmatureReferences(bpy.types.Operator):
+    # set bl_ properties
+    bl_description = 'Updates armature modifiers on meshes to point to a new armature.'
+    bl_idname = "object.update_armature_refs"
+    bl_label = "Update Armature Modifiers"
+    bl_options = {"REGISTER", "UNDO", "PRESET"}
+    
+    def execute(self, context):
+        if context.active_object is None:
+            raise RuntimeError("Armature not selected.")
+        elif type(context.active_object.data) is not bpy.types.Armature:
+            raise RuntimeError("Armature not selected.")
+
+        # Get the active object (should be the armature)
+        active_obj = bpy.context.active_object
+        for obj in bpy.context.selected_objects:
+            # Skip the active object itself
+            if obj == active_obj:
+                continue
+            
+            # Search for an armature modifier on the object
+            for mod in obj.modifiers:
+                if mod.type == 'ARMATURE':
+                    print(f"Updating armature modifier for: {obj.name}")
+                    mod.object = active_obj
+                    break  # Only update the first armature modifier
+        
+        self.report({"INFO"}, "Finished")
+        return {"FINISHED"}  # must return a set
+
 class GenerateRig(bpy.types.Operator):
     # set bl_ properties
     bl_description = 'Generates a GRT rig from the selected Rigify metarig. An optional add-on rig will be joined to the Rigify control rig before generating the GRT deform rig. The selected bones in this add-on rig are parented to the "head" bone.'
@@ -302,9 +332,16 @@ class GenerateRig(bpy.types.Operator):
         constraint.use_z = False
 
         # Add shape key rig if applicable.
-        shapeKeyRig = bpy.context.scene.rigifyToGRTProperty.shapeKeyRig
+        shapeKeyRigOriginal = bpy.context.scene.rigifyToGRTProperty.shapeKeyRig
         shapeKeyRigBoneNames = []
-        if shapeKeyRig:
+        if shapeKeyRigOriginal:
+            
+            # Duplicate shape key rig before use
+            shapeKeyRig = shapeKeyRigOriginal.copy()
+            shapeKeyRig.data = shapeKeyRigOriginal.data.copy()
+            for col in ikRigObj.users_collection:
+                col.objects.link(shapeKeyRig)
+            
             shapeKeyRigBoneNames = [
                 bone.name for bone in shapeKeyRig.data.bones if bone.parent is None
             ]
@@ -525,6 +562,8 @@ class ToolsPanel(bpy.types.Panel):
         shape_key_prop = bpy.context.scene.shapeKeySetupProperty
         col.operator(SetupShapekeyDriver.bl_idname)
         prop_split(col, shape_key_prop, "shapeKeyType", "Shapekey Category")
+        
+        col.operator(UpdateArmatureReferences.bl_idname)
 
 
 def prop_split(layout, data, field, name, **prop_kwargs):
@@ -572,6 +611,7 @@ class ShapeKeySetupProperty(bpy.types.PropertyGroup):
 classes = [
     GenerateRig,
     TransferShapeKeyDrivers,
+    UpdateArmatureReferences,
     ToolsPanel,
     RigifyToGRTProperty,
     SetupShapekeyDriver,
