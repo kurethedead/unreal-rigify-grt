@@ -410,6 +410,14 @@ class GenerateRig(bpy.types.Operator):
         # Shape Key Bones to Head
         for childName in shapeKeyRigBoneNames:
             editBones[childName].parent = editBones["DEF-spine.006"]
+            
+        bpy.ops.object.mode_set(mode="POSE")
+        
+        # Add mising copy scale, which is not done by GameRigTools
+        for poseBone in GRTRigObj.pose.bones:
+            constraint = poseBone.constraints.new(type="COPY_SCALE")
+            constraint.target = ikRigObj
+            constraint.subtarget = poseBone.name
 
         bpy.ops.object.mode_set(mode="OBJECT")
 
